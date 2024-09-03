@@ -1,9 +1,7 @@
-name: First Workflow
+name: Test Project
+on: push
 jobs:
-  first-job:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Print first
-        run: echo "nice one"
-      - name: Print second
-        run: echo "second"
+      - name: Get code
