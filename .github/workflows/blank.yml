@@ -3,7 +3,8 @@ on: workflow_dispatch
 jobs: 
   firstjob:
     runs-on: ubuntu-latest
-    run: |
-        echo "hello world"
-        echo "nice to meet you"
+    steps:
+      run: |
+          echo "hello world"
+          echo "nice to meet you"
   
