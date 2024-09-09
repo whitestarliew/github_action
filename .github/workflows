@@ -1,8 +1,83 @@
-name: Test Project
-on: push
+name: Deploy to EKS
+
+on:
+  push:
+    branches:
+      - main
+
 jobs:
-  test:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Get code
-        uses: action/checkout
+    # Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    # Set up Docker Buildx
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    # Login to AWS ECR
+    - name: Login to AWS ECR
+      run: |
+        aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com
+
+    # Build and Push Docker Image
+    - name: Build and push Docker image
+      run: |
+        docker buildx build --platform linux/amd64,linux/arm64 --push -t <AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com/abc-123:latest .
+
+    # Configure AWS credentials
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_KEY_ABC }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ABC }}
+        aws-region: ap-southeast-1
+
+    # Set up kubectl
+    - name: Set up kubectl
+      uses: actions-hub/kubectl@v1
+      with:
+        version: 'v1.20.0'
+
+    # Install Helm if not installed
+    - name: Install Helm
+      run: |
+        if ! helm version > /dev/null 2>&1; then
+          curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+        fi
+
+    # Update kubeconfig to connect to EKS cluster
+    - name: Update kubeconfig for EKS
+      run: |
+        aws eks update-kubeconfig --name abc-123-cluster --region ap-southeast-1
+
+    # Deploy using Helm
+    - name: Deploy with Helm
+      run: |
+        if helm list --namespace default | grep -q 'abc-chart'; then
+          echo "Helm chart exists. Updating deployment."
+          helm upgrade abc-chart ./helm/abc-chart --namespace default --set image.repository=<AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com/abc-123,image.tag=latest
+        else
+          echo "Installing new Helm chart."
+          helm install abc-chart ./helm/abc-chart --namespace default --set image.repository=<AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com/abc-123,image.tag=latest
+        fi
+
+    # Post-Deployment Verification
+    - name: Wait for Deployment to Rollout
+      run: |
+        kubectl rollout status deployment/abc-chart --namespace default
+
+    - name: Verify Pods are Running
+      run: |
+        kubectl get pods --namespace default -l app=abc-chart
+
+    - name: Check Pod Health
+      run: |
+        # Replace 'abc-chart' with your actual label selector if different
+        PODS=$(kubectl get pods --namespace default -l app=abc-chart -o jsonpath='{.items[*].metadata.name}')
+        for pod in $PODS; do
+          kubectl wait --for=condition=ready pod/$pod --namespace default --timeout=60s
+        done
